@@ -1,0 +1,20 @@
+# Student Availability Constraints
+# Format: StudentName,AvailableDays,AvailableHours
+# 
+# AvailableDays: 
+#   - Single day: 1 or 2
+#   - Range: 1-2 (means both days)
+#   - Leave empty for all days available
+#
+# AvailableHours:
+#   - Single range: 09:00-12:00
+#   - Multiple ranges: 09:00-12:00;14:00-16:00
+#   - Leave empty for all hours available
+#
+# Examples:
+John Doe,1,09:00-12:00
+Jane Smith,2,10:00-15:00
+Bob Johnson,,09:00-11:00;13:00-16:00
+Alice Brown,1-2,14:00-16:00
+Mike Wilson,1,
+Sarah Davis,,09:00-10:00
