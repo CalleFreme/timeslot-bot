@@ -194,10 +194,15 @@ class TimeslotScheduler:
         Generate the complete schedule
         
         Args:
-            student_names: List of student names. If None, generates generic names
+            student_names: List of student names. If None and total_students is set, generates generic names
             constraints_file: Path to student constraints file
         """
-        # Load constraints
+        # If total_students is None, generate all possible slots without assigning students
+        if self.total_students is None:
+            self.time_slots = self.generate_all_possible_slots()
+            return self.time_slots
+        
+        # Load constraints only when we have students to assign
         self.load_student_constraints(constraints_file)
         
         # Generate student names if not provided
@@ -220,21 +225,26 @@ class TimeslotScheduler:
             print("No schedule generated yet. Please run generate_schedule() first.")
             return
         
-        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['Day', 'Start Time', 'End Time', 'Student Name', 'Duration (minutes)']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        try:
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['Day', 'Start Time', 'End Time', 'Student Name', 'Duration (minutes)']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for slot in self.time_slots:
+                    writer.writerow({
+                        'Day': f"Day {slot.day}",
+                        'Start Time': slot.start_time.strftime('%H:%M'),
+                        'End Time': slot.end_time.strftime('%H:%M'),
+                        'Student Name': slot.student_name or "AVAILABLE",
+                        'Duration (minutes)': self.slot_duration_minutes
+                    })
             
-            writer.writeheader()
-            for slot in self.time_slots:
-                writer.writerow({
-                    'Day': f"Day {slot.day}",
-                    'Start Time': slot.start_time.strftime('%H:%M'),
-                    'End Time': slot.end_time.strftime('%H:%M'),
-                    'Student Name': slot.student_name or "AVAILABLE",
-                    'Duration (minutes)': self.slot_duration_minutes
-                })
-        
-        print(f"Schedule exported to {filename}")
+            print(f"Schedule exported to {filename}")
+            return True
+        except Exception as e:
+            print(f"Error exporting to CSV: {e}")
+            return False
     
     def print_schedule_summary(self) -> None:
         """Print a summary of the generated schedule"""
@@ -243,8 +253,16 @@ class TimeslotScheduler:
             return
         
         print(f"\n=== PRESENTATION SCHEDULE SUMMARY ===")
-        print(f"Total students: {self.total_students}")
-        print(f"Total assigned slots: {len([s for s in self.time_slots if s.student_name])}")
+        if self.total_students is not None:
+            print(f"Total students: {self.total_students}")
+            print(f"Total assigned slots: {len([s for s in self.time_slots if s.student_name])}")
+        else:
+            print("Mode: Generate all available timeslots")
+            assigned_slots = len([s for s in self.time_slots if s.student_name])
+            print(f"Total available slots: {len(self.time_slots)}")
+            if assigned_slots > 0:
+                print(f"Assigned slots: {assigned_slots}")
+        
         print(f"Slot duration: {self.slot_duration_minutes} minutes")
         
         for day in self.days:
@@ -270,14 +288,19 @@ def get_user_input():
     """Get user input for scheduler configuration"""
     print("=== PRESENTATION TIMESLOT SCHEDULER ===\n")
     
-    # Get number of students
+    # Get number of students (optional)
     while True:
         try:
-            total_students = int(input("Enter the number of students/slots needed: "))
-            if total_students > 0:
+            student_input = input("Enter the number of students/slots needed (or press Enter to generate all possible slots): ").strip()
+            if not student_input:
+                total_students = None
                 break
             else:
-                print("Please enter a positive number.")
+                total_students = int(student_input)
+                if total_students > 0:
+                    break
+                else:
+                    print("Please enter a positive number.")
         except ValueError:
             print("Please enter a valid number.")
     
@@ -408,7 +431,7 @@ class IntervalTimeslotScheduler(TimeslotScheduler):
     """Extended scheduler that handles multiple time intervals per day"""
     
     def __init__(self, 
-                 total_students: int,
+                 total_students: Optional[int],
                  days: List[int],
                  day_schedules: Dict[int, List[Tuple[datetime.time, datetime.time]]],
                  slot_duration_minutes: int = 10,
@@ -417,15 +440,17 @@ class IntervalTimeslotScheduler(TimeslotScheduler):
         Initialize the scheduler with flexible day schedules
         
         Args:
-            total_students: Total number of students to schedule
+            total_students: Total number of students to schedule (None to generate all possible slots)
             days: List of day numbers
             day_schedules: Dict mapping day numbers to list of (start_time, end_time) tuples
             slot_duration_minutes: Duration of each presentation slot in minutes
             break_duration_minutes: Break duration between slots in minutes
         """
-        # Initialize parent class with dummy values
-        super().__init__(total_students, days, 9, 17, slot_duration_minutes, break_duration_minutes)
+        # Initialize parent class with dummy values (use 0 if None)
+        super().__init__(total_students or 0, days, 9, 17, slot_duration_minutes, break_duration_minutes)
         self.day_schedules = day_schedules
+        # Preserve the original total_students value (including None)
+        self.total_students = total_students
     
     def generate_all_possible_slots(self) -> List[TimeSlot]:
         """Generate all possible time slots for all days with flexible intervals"""
@@ -471,7 +496,10 @@ def interactive_main():
     
     # Show configuration summary
     print(f"\n=== CONFIGURATION SUMMARY ===")
-    print(f"Total students: {total_students}")
+    if total_students is not None:
+        print(f"Total students: {total_students}")
+    else:
+        print("Mode: Generate all available timeslots")
     print(f"Slot duration: {slot_duration} minutes")
     print(f"Break duration: {break_duration} minutes")
     print(f"Days and schedules:")
@@ -483,22 +511,25 @@ def interactive_main():
     total_available_slots = len(scheduler.generate_all_possible_slots())
     print(f"Total available slots: {total_available_slots}")
     
-    if total_students > total_available_slots:
-        print(f"\n❌ WARNING: Not enough slots available!")
-        print(f"   Need: {total_students} slots")
-        print(f"   Have: {total_available_slots} slots")
-        print(f"   Shortage: {total_students - total_available_slots} slots")
-        print("\nSuggestions:")
-        print("- Reduce presentation time per student")
-        print("- Add more time intervals")
-        print("- Add more days")
-        
-        proceed = input("\nDo you want to proceed anyway? (y/N): ").lower().strip()
-        if proceed != 'y':
-            print("Scheduler cancelled.")
-            return
+    if total_students is not None:
+        if total_students > total_available_slots:
+            print(f"\n❌ WARNING: Not enough slots available!")
+            print(f"   Need: {total_students} slots")
+            print(f"   Have: {total_available_slots} slots")
+            print(f"   Shortage: {total_students - total_available_slots} slots")
+            print("\nSuggestions:")
+            print("- Reduce presentation time per student")
+            print("- Add more time intervals")
+            print("- Add more days")
+            
+            proceed = input("\nDo you want to proceed anyway? (y/N): ").lower().strip()
+            if proceed != 'y':
+                print("Scheduler cancelled.")
+                return
+        else:
+            print(f"✅ Sufficient capacity: {total_available_slots - total_students} extra slots available")
     else:
-        print(f"✅ Sufficient capacity: {total_available_slots - total_students} extra slots available")
+        print(f"✅ Will generate all {total_available_slots} possible timeslots")
     
     # Generate the schedule
     print(f"\nGenerating presentation schedule...")
@@ -514,9 +545,11 @@ def interactive_main():
     if not filename.endswith('.csv'):
         filename += '.csv'
     
-    scheduler.export_to_csv(filename)
-    
-    print(f"\n✅ Schedule successfully generated and exported to {filename}")
+    if schedule:  # Only export if schedule was actually generated
+        scheduler.export_to_csv(filename)
+        print(f"\n✅ Schedule successfully generated and exported to {filename}")
+    else:
+        print(f"\n❌ Failed to generate schedule")
 
 def main():
     """Main function - choose between interactive and example mode"""
